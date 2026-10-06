@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RENDER STUDIO — Stylized Environmental Renderer</title>
+<style>
+/* ── FONTS ───────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Crimson+Pro:ital,wght@0,300;0,600;1,300&display=swap');
+
+/* ── TOKENS ──────────────────────────────────────────────────── */
+:root {
+  --ink:       #0a0a0b;
+  --paper:     #f5f0e8;
+  --warm:      #d4a843;
+  --warm-dim:  #8a6d2a;
+  --rust:      #c0522a;
+  --teal:      #2a7c6f;
+  --muted:     #6b6257;
+  --border:    #2a2520;
+  --panel:     #12100e;
+  --panel2:    #1c1915;
+  --glow:      rgba(212,168,67,0.15);
+  --ff-head:   'Bebas Neue', sans-serif;
+  --ff-mono:   'DM Mono', monospace;
+  --ff-body:   'Crimson Pro', serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--ff-body);
+  overflow-x: hidden;
+}
+
+/* ── GRAIN OVERLAY ───────────────────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.4;
+}
+
+/* ── LAYOUT ──────────────────────────────────────────────────── */
+.app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+/* ── HEADER ──────────────────────────────────────────────────── */
+header {
+  padding: 2rem 3rem 1.5rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(to bottom, #0f0d0b, transparent);
+}
+
+.logo {
+  font-family: var(--ff-head);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  letter-spacing: 0.08em;
+  color: var(--warm);
+  line-height: 1;
+}
+
+.logo-sub {
+  font-family: var(--ff-mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+}
+
+.badge {
+  font-family: var(--ff-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  padding: 0.3em 0.7em;
+  border: 1px solid var(--warm-dim);
+  color: var(--warm-dim);
+  text-transform: uppercase;
+  align-self: center;
+}
+
+/* ── MAIN GRID ───────────────────────────────────────────────── */
+main {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 0;
+  min-height: 0;
+}
+
+/* ── SIDEBAR ─────────────────────────────────────────────────── */
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 2rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  overflow-y: auto;
+}
+
+.section-label {
+  font-family: var(--ff-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── DROP ZONE ───────────────────────────────────────────────── */
+.drop-zone {
+  border: 1px dashed var(--border);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  background: var(--panel2);
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--warm);
+  background: var(--glow);
+}
+
+.drop-icon {
+  width: 44px; height: 44px;
+  stroke: var(--warm-dim);
+  transition: stroke 0.2s;
+}
+
+.drop-zone:hover .drop-icon,
+.drop-zone.drag-over .drop-icon {
+  stroke: var(--warm);
+}
+
+.drop-label {
+  font-family: var(--ff-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+}
+
+.drop-file-name {
+  font-family: var(--ff-mono);
+  font-size: 0.65rem;
+  color: var(--warm);
+  word-break: break-all;
+}
+
+/* ── CONTROLS ────────────────────────────────────────────────── */
+.controls { display: flex; flex-direction: column; gap: 1.25rem; }
+
+.control-row { display: flex; flex-direction: column; gap: 0.4rem; }
+
+.ctrl-label {
+  font-family: var(--ff-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.ctrl-value {
+  color: var(--warm);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--warm);
+  box-shadow: 0 0 8px var(--glow);
+  transition: transform 0.15s;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.3);
+}
+
+.toggle-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 0.5em;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--ff-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+
+.toggle-btn.active {
+  background: var(--warm);
+  border-color: var(--warm);
+  color: var(--ink);
+}
+
+/* ── RENDER BUTTON ───────────────────────────────────────────── */
+.render-btn {
+  width: 100%;
+  padding: 1em 1.5em;
+  background: var(--warm);
+  border: none;
+  color: var(--ink);
+  font-family: var(--ff-head);
+  font-size: 1.4rem;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.render-btn::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.2);
+  transform: translateX(-100%) skewX(-20deg);
+  transition: transform 0.4s;
+}
+
+.render-btn:hover::before { transform: translateX(200%) skewX(-20deg); }
+.render-btn:hover { background: #e8b84d; box-shadow: 0 0 30px var(--glow); }
+.render-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.render-btn:disabled::before { display: none; }
+
+/* ── CANVAS AREA ─────────────────────────────────────────────── */
+.canvas-area {
+  background: var(--panel2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  position: relative;
+  overflow: hidden;
+  min-height: 500px;
+}
+
+/* Subtle grid background */
+.canvas-area::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.3;
+}
+
+.canvas-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 720px;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  opacity: 0.4;
+}
+
+.empty-state svg {
+  width: 80px; height: 80px;
+  stroke: var(--warm);
+  margin-bottom: 1rem;
+}
+
+.empty-title {
+  font-family: var(--ff-head);
+  font-size: 2rem;
+  letter-spacing: 0.1em;
+  color: var(--warm-dim);
+}
+
+.empty-sub {
+  font-family: var(--ff-mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  margin-top: 0.5rem;
+}
+
+/* ── IMAGE DISPLAY ───────────────────────────────────────────── */
+.image-frame {
+  width: 100%;
+  position: relative;
+  animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.image-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.image-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.image-panel img {
+  width: 100%;
+  height: 280px;
+  object-fit: cover;
+  display: block;
+}
+
+.image-panel-label {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(transparent, rgba(10,10,11,0.9));
+  padding: 0.75rem 1rem 0.6rem;
+  font-family: var(--ff-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--warm);
+}
+
+/* ── LOADING STATE ───────────────────────────────────────────── */
+.loading-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 3rem;
+  text-align: center;
+}
+
+.spinner-ring {
+  width: 56px; height: 56px;
+  border: 2px solid var(--border);
+  border-top-color: var(--warm);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-label {
+  font-family: var(--ff-head);
+  font-size: 1.6rem;
+  letter-spacing: 0.15em;
+  color: var(--warm);
+}
+
+.loading-sub {
+  font-family: var(--ff-mono);
+  font-size: 0.62rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  animation: blink 1.4s step-end infinite;
+}
+
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── PIPELINE STEPS ──────────────────────────────────────────── */
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 340px;
+}
+
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--ff-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  transition: color 0.3s;
+}
+
+.pipeline-step.active { color: var(--warm); }
+.pipeline-step.done   { color: var(--teal); }
+
+.step-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.pipeline-step.active .step-dot {
+  background: var(--warm);
+  box-shadow: 0 0 8px var(--warm);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.pipeline-step.done .step-dot { background: var(--teal); }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 4px var(--warm); }
+  50%       { box-shadow: 0 0 14px var(--warm); }
+}
+
+/* ── META TAGS ───────────────────────────────────────────────── */
+.meta-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.meta-tag {
+  font-family: var(--ff-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.15em;
+  padding: 0.3em 0.6em;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.meta-tag span { color: var(--warm); }
+
+/* ── DOWNLOAD BTN ────────────────────────────────────────────── */
+.dl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6em 1.4em;
+  background: transparent;
+  border: 1px solid var(--warm);
+  color: var(--warm);
+  font-family: var(--ff-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dl-btn:hover { background: var(--warm); color: var(--ink); }
+
+/* ── ERROR STATE ─────────────────────────────────────────────── */
+.error-block {
+  text-align: center;
+  padding: 2rem;
+  border: 1px solid var(--rust);
+  color: var(--rust);
+  font-family: var(--ff-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+
+/* ── FOOTER ──────────────────────────────────────────────────── */
+footer {
+  padding: 1rem 3rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--ff-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+/* ── INPUT FILE HIDDEN ───────────────────────────────────────── */
+#file-input { display: none; }
+
+/* ── SCROLLBAR ───────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--panel); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+  header { padding: 1.25rem 1.5rem; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  .canvas-area { min-height: 400px; padding: 2rem 1.5rem; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div>
+      <div class="logo">Render Studio</div>
+      <div class="logo-sub">Stylized Environmental Renderer</div>
+    </div>
+    <div class="badge">Phase 5 · React Port</div>
+  </header>
+
+  <!-- MAIN -->
+  <main>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+
+      <!-- UPLOAD -->
+      <div>
+        <div class="section-label">01 · Source Image</div>
+        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="drop-label" id="drop-label">Drop image or click to browse</div>
+          <div class="drop-file-name" id="drop-file-name"></div>
+        </div>
+        <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp"/>
+      </div>
+
+      <!-- CONTROLS -->
+      <div>
+        <div class="section-label">02 · Pipeline Parameters</div>
+        <div class="controls">
+
+          <div class="control-row">
+            <div class="ctrl-label">
+              Palette Colors (K-Means)
+              <span class="ctrl-value" id="k-val">12</span>
+            </div>
+            <input type="range" id="k-colors" min="4" max="32" value="12"
+                   oninput="document.getElementById('k-val').textContent=this.value"/>
+          </div>
+
+          <div class="control-row">
+            <div class="ctrl-label">
+              Bilateral Passes
+              <span class="ctrl-value" id="p-val">3</span>
+            </div>
+            <input type="range" id="passes" min="1" max="6" value="3"
+                   oninput="document.getElementById('p-val').textContent=this.value"/>
+          </div>
+
+          <div class="control-row">
+            <div class="ctrl-label">
+              Canny Low Threshold
+              <span class="ctrl-value" id="cl-val">50</span>
+            </div>
+            <input type="range" id="canny-low" min="10" max="200" value="50"
+                   oninput="document.getElementById('cl-val').textContent=this.value"/>
+          </div>
+
+          <div class="control-row">
+            <div class="ctrl-label">
+              Canny High Threshold
+              <span class="ctrl-value" id="ch-val">150</span>
+            </div>
+            <input type="range" id="canny-high" min="50" max="400" value="150"
+                   oninput="document.getElementById('ch-val').textContent=this.value"/>
+          </div>
+
+          <div class="control-row">
+            <div class="ctrl-label">Edge Detection Method</div>
+            <div class="toggle-row">
+              <button class="toggle-btn active" id="btn-canny"
+                      onclick="selectEdge('canny')">Canny</button>
+              <button class="toggle-btn" id="btn-sobel"
+                      onclick="selectEdge('sobel')">Sobel</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- RENDER BUTTON -->
+      <div>
+        <div class="section-label">03 · Execute</div>
+        <button class="render-btn" id="render-btn" onclick="startRender()" disabled>
+          Render
+        </button>
+      </div>
+
+    </aside>
+
+    <!-- CANVAS AREA -->
+    <section class="canvas-area">
+      <div class="canvas-content" id="canvas-content">
+        <!-- Empty state (default) -->
+        <div class="empty-state" id="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <div class="empty-title">Awaiting Source</div>
+          <div class="empty-sub">Upload a photo to begin rendering</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>Render Studio · Stylized Environmental Renderer</span>
+    <span id="status-bar">Ready</span>
+  </footer>
+
+</div>
+
+<!-- ── API CONFIG ──────────────────────────────────────────── -->
+<!-- Change this to your FastAPI server URL -->
+<script>
+const API_BASE = 'http://localhost:8000';
+// Async mode (Phase 3+): set true to use task_id polling
+// Sync mode  (Phase 2):  set false to get image directly
+const ASYNC_MODE = true;
+
+let selectedFile = null;
+let selectedEdge = 'canny';
+let pollTimer    = null;
+let originalDataUrl = null;
+
+/* ── FILE HANDLING ─────────────────────────────────────────── */
+const dropZone   = document.getElementById('drop-zone');
+const fileInput  = document.getElementById('file-input');
+const renderBtn  = document.getElementById('render-btn');
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) setFile(e.target.files[0]);
+});
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+
+function setFile(file) {
+  selectedFile = file;
+  document.getElementById('drop-file-name').textContent = file.name;
+  document.getElementById('drop-label').textContent = 'Image loaded';
+  renderBtn.disabled = false;
+  setStatus(`Loaded: ${file.name} (${(file.size/1024).toFixed(0)} KB)`);
+
+  // Show preview
+  const reader = new FileReader();
+  reader.onload = e => {
+    originalDataUrl = e.target.result;
+    showPreview(originalDataUrl);
+  };
+  reader.readAsDataURL(file);
+}
+
+function showPreview(dataUrl) {
+  const content = document.getElementById('canvas-content');
+  content.innerHTML = `
+    <div class="image-frame">
+      <div class="image-compare">
+        <div class="image-panel">
+          <img src="${dataUrl}" alt="Original"/>
+          <div class="image-panel-label">Original</div>
+        </div>
+        <div class="image-panel" id="result-panel">
+          <div style="height:280px;display:flex;align-items:center;justify-content:center;
+                      background:var(--panel);color:var(--muted);font-family:var(--ff-mono);
+                      font-size:0.62rem;letter-spacing:0.1em;">
+            Stylized output will appear here
+          </div>
+          <div class="image-panel-label">Stylized</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ── EDGE TOGGLE ───────────────────────────────────────────── */
+function selectEdge(method) {
+  selectedEdge = method;
+  document.getElementById('btn-canny').classList.toggle('active', method === 'canny');
+  document.getElementById('btn-sobel').classList.toggle('active', method === 'sobel');
+}
+
+/* ── RENDER ────────────────────────────────────────────────── */
+async function startRender() {
+  if (!selectedFile) return;
+  if (pollTimer) clearInterval(pollTimer);
+
+  renderBtn.disabled = true;
+  setStatus('Submitting render job…');
+
+  const params = new URLSearchParams({
+    k_colors:   document.getElementById('k-colors').value,
+    passes:     document.getElementById('passes').value,
+    edges:      selectedEdge,
+    canny_low:  document.getElementById('canny-low').value,
+    canny_high: document.getElementById('canny-high').value,
+  });
+
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+
+  try {
+    if (ASYNC_MODE) {
+      await renderAsync(formData, params);
+    } else {
+      await renderSync(formData, params);
+    }
+  } catch (err) {
+    showError(err.message);
+    renderBtn.disabled = false;
+  }
+}
+
+/* ── SYNC RENDER (Phase 2) ─────────────────────────────────── */
+async function renderSync(formData, params) {
+  showLoading(0);
+
+  const res = await fetch(`${API_BASE}/api/v1/render?${params}`, {
+    method: 'POST', body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+
+  const blob    = await res.blob();
+  const url     = URL.createObjectURL(blob);
+  const procTime = res.headers.get('X-Processing-Time') || '—';
+  showResult(url, { processing_s: procTime });
+}
+
+/* ── ASYNC RENDER (Phase 3+) ───────────────────────────────── */
+async function renderAsync(formData, params) {
+  showLoading(0);
+
+  const res  = await fetch(`${API_BASE}/api/v1/render?${params}`, {
+    method: 'POST', body: formData,
+  });
+  const data = await res.json();
+
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+
+  const taskId = data.task_id;
+  setStatus(`Task queued: ${taskId.slice(0, 8)}…`);
+
+  let step = 0;
+  pollTimer = setInterval(async () => {
+    step++;
+    showLoading(step);
+    try {
+      const statusRes  = await fetch(`${API_BASE}/api/v1/status/${taskId}`);
+      const statusData = await statusRes.json();
+
+      if (statusData.state === 'SUCCESS') {
+        clearInterval(pollTimer);
+        const bytes = atob(statusData.result_b64);
+        const arr   = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        const blob  = new Blob([arr], { type: 'image/jpeg' });
+        const url   = URL.createObjectURL(blob);
+        showResult(url, statusData);
+      } else if (statusData.state === 'FAILURE') {
+        clearInterval(pollTimer);
+        throw new Error(statusData.error || 'Task failed');
+      }
+    } catch(e) {
+      clearInterval(pollTimer);
+      showError(e.message);
+      renderBtn.disabled = false;
+    }
+  }, 2000);
+}
+
+/* ── UI STATE RENDERERS ────────────────────────────────────── */
+const STEPS = [
+  'Bilateral filter smoothing…',
+  'K-Means palette reduction…',
+  'Cinematic color grading…',
+  'Edge outline generation…',
+  'Compositing final image…',
+];
+
+function showLoading(step) {
+  const activeStep = step % STEPS.length;
+  setStatus('Processing…');
+  const content = document.getElementById('canvas-content');
+  content.innerHTML = `
+    <div class="loading-block">
+      <div class="spinner-ring"></div>
+      <div class="loading-label">Rendering</div>
+      <div class="loading-sub">${STEPS[activeStep]}</div>
+      <div class="pipeline">
+        ${STEPS.map((s, i) => `
+          <div class="pipeline-step ${i < activeStep ? 'done' : i === activeStep ? 'active' : ''}">
+            <div class="step-dot"></div>
+            <span>${s}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function showResult(imageUrl, meta) {
+  setStatus(`Done · ${meta.processing_s}s processing`);
+  renderBtn.disabled = false;
+
+  const content = document.getElementById('canvas-content');
+  content.innerHTML = `
+    <div class="image-frame">
+      <div class="image-compare">
+        <div class="image-panel">
+          <img src="${originalDataUrl}" alt="Original"/>
+          <div class="image-panel-label">Original</div>
+        </div>
+        <div class="image-panel">
+          <img src="${imageUrl}" alt="Stylized"/>
+          <div class="image-panel-label">Stylized</div>
+        </div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <div class="meta-tag">k-colors <span>${document.getElementById('k-colors').value}</span></div>
+      <div class="meta-tag">edges <span>${selectedEdge}</span></div>
+      <div class="meta-tag">passes <span>${document.getElementById('passes').value}</span></div>
+      <div class="meta-tag">time <span>${meta.processing_s}s</span></div>
+    </div>
+    <a class="dl-btn" href="${imageUrl}" download="stylized_render.jpg">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download Stylized Image
+    </a>
+  `;
+}
+
+function showError(msg) {
+  renderBtn.disabled = false;
+  setStatus(`Error: ${msg}`);
+  const content = document.getElementById('canvas-content');
+  content.innerHTML = `
+    <div class="error-block">
+      <div style="font-size:1.2rem;margin-bottom:0.5rem;">Render Failed</div>
+      <div style="color:var(--muted);margin-top:0.5rem;">${msg}</div>
+    </div>
+  `;
+}
+
+function setStatus(msg) {
+  document.getElementById('status-bar').textContent = msg;
+}
+</script>
+</body>
+</html>
