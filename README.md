@@ -380,3 +380,5 @@ python -m http.server 9000
 - **Batch processing** — upload a folder, get all images stylized
 - **GPU acceleration** — OpenCV supports CUDA; massive speedup on NVIDIA GPUs
 - **Model-based stylization** — replace K-Means with a neural style transfer model
+#   S t y l i z e d - E n v i r o n m e n t a l - R e n d e r e r  
+ 
