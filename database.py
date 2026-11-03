@@ -1,39 +1,23 @@
 """
-Phase 4: Database Layer – SQLAlchemy Models
-============================================
-We use SQLAlchemy (the most popular Python ORM) to define our database schema
-as Python classes, so we never write raw SQL.
+Database layer - SQLAlchemy models for the renders table.
 
-Key SQLAlchemy concepts
------------------------
-• Engine      – the connection to the database (PostgreSQL, SQLite, etc.)
-• Session     – a "unit of work"; all queries go through a session
-• Base        – declarative base class every model inherits from
-• Column      – maps a Python attribute to a DB column
-• relationship– defines foreign-key joins as Python object attributes
-
-In production → DATABASE_URL = "postgresql://user:pass@host:5432/dbname"
-For local dev  → DATABASE_URL = "sqlite:///./dev.db"  (no Postgres install needed)
+Connection string comes from the DATABASE_URL environment variable
+(loaded from a local .env file). Falls back to SQLite for quick local runs.
 """
 
 import os
 import uuid
 from datetime import datetime, timezone
 
+from dotenv import load_dotenv
 from sqlalchemy import (
     create_engine, Column, String, DateTime, Float, Integer, Text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy import text
 
-# ─────────────────────────────────────────────
-# CONNECTION SETUP
-# ─────────────────────────────────────────────
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:yash1234@localhost:5432/stylized_renderer"
-)
+load_dotenv()  # reads .env next to this file (never committed to Git)
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./stylized_renderer.db")
 
 # SQLite needs a special flag; PostgreSQL does not
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -41,34 +25,27 @@ connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite")
 engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args,
-    echo=False,          # Set True to print every SQL statement (great for debugging)
+    echo=False,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# ─────────────────────────────────────────────
-# MODEL: Render Job
-# ─────────────────────────────────────────────
 class Render(Base):
     """
     Tracks every render job from submission to completion.
 
-    Table name: renders
-    -------------------
     id               : UUID primary key
-    task_id          : Celery task ID (used to look up status in Redis)
+    task_id          : Celery task ID
     user_id          : Anonymous session ID or auth user ID
-    original_url     : S3 URL of the uploaded original image
-    stylized_url     : S3 URL of the processed output image (NULL until done)
+    original_url     : storage URL of the uploaded original image
+    stylized_url     : storage URL of the processed image (NULL until done)
     status           : queued | processing | success | failed
-    k_colors         : Pipeline parameter stored for audit/replay
-    edge_method      : Pipeline parameter
-    processing_s     : Wall-clock seconds the stylize() call took
-    error_message    : If status=failed, what went wrong
-    created_at       : When the job was submitted
-    completed_at     : When the job finished (NULL until done)
+    k_colors, edge_method, bilateral_passes : pipeline parameters (audit/replay)
+    processing_s     : seconds the stylize() call took
+    error_message    : if status=failed, what went wrong
+    created_at / completed_at : UTC timestamps
     """
     __tablename__ = "renders"
 
@@ -76,28 +53,22 @@ class Render(Base):
     task_id        = Column(String(255), unique=True, nullable=False, index=True)
     user_id        = Column(String(255), nullable=True, index=True)
 
-    # S3 URLs (nullable until the job completes)
     original_url   = Column(Text, nullable=True)
     stylized_url   = Column(Text, nullable=True)
 
-    # Job state
     status         = Column(String(50), default="queued", nullable=False)
 
-    # Pipeline parameters (for audit trail & replay)
-    k_colors       = Column(Integer, default=12)
-    edge_method    = Column(String(20), default="canny")
+    k_colors         = Column(Integer, default=12)
+    edge_method      = Column(String(20), default="canny")
     bilateral_passes = Column(Integer, default=3)
 
-    # Metrics
     processing_s   = Column(Float, nullable=True)
     error_message  = Column(Text, nullable=True)
 
-    # Timestamps (always store UTC!)
     created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at   = Column(DateTime, nullable=True)
 
     def to_dict(self) -> dict:
-        """Serialize to JSON-safe dict for API responses."""
         return {
             "id":               self.id,
             "task_id":          self.task_id,
@@ -118,24 +89,13 @@ class Render(Base):
         return f"<Render id={self.id} status={self.status}>"
 
 
-# ─────────────────────────────────────────────
-# DB INITIALISATION
-# ─────────────────────────────────────────────
 def init_db():
     """Create all tables if they don't exist yet."""
     Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Session:
-    """
-    FastAPI dependency that yields a database session.
-    The session is automatically closed after the request finishes.
-
-    Usage in a FastAPI route:
-        @app.get("/renders")
-        def list_renders(db: Session = Depends(get_db)):
-            return db.query(Render).all()
-    """
+    """FastAPI dependency that yields a session and closes it afterwards."""
     db = SessionLocal()
     try:
         yield db

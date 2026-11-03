@@ -1,0 +1,18 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.idea/
+.env
+*.db
+test_output/
+
+# models are downloaded separately (see README) - AnimeGANv3 weights are non-commercial
+models/*.onnx
+
+# local test images and personal notes
+/*.jpg
+/*.png
+PROJECT_GUIDE*.md
+dump.rdb
+*.rdb
